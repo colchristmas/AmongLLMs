@@ -263,6 +263,24 @@ async def get_game_state(game_id: int):
         ),  # Add max_timesteps from game config
     }
 
+    # Always send ejection annoucement regardless if player is alive or spectating, so the front-end can decide whether to show it in the banner or not based on if it's the human's turn and if they're alive
+    state["ejection_announcement"] = game.pending_system_announcement or ""
+
+    # =========== Begin Status Bar ============  
+    # Always send human player's current location for the status bar, even if they're spectating, so the front-end can decide whether to show it based on if it's the human's turn and if they're alive
+    if human_player_result:
+        human_agent, _ = human_player_result
+        state["current_location"] = human_agent.player.location
+    else:
+        state["current_location"] = ""
+    # =========== End status bar ============ 
+    
+    # For Ejection Popup for front-end catching vote tallys and ejection results
+    if human_player_result:
+        human_agent, _ = human_player_result
+        if human_agent in game.agents:
+            human_state = human_agent.get_current_state_for_web()
+            state["player_info"] = human_state.get("player_info", "")
     if game.current_phase == "meeting":
         # Everyone is moved to Cafeteria in meeting_phase(), but you probably want "alive attendees"
         alive = [p.name for p in game.players if getattr(p, "is_alive", False)]

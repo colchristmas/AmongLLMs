@@ -17,10 +17,12 @@ from amongagents.agent.prompts import (
 )
 from amongagents.envs.configs.agent_config import (
     ALL_LLM,
+    ALL_LONG_CONTEXT,
     ALL_RANDOM,
     CREWMATE_LLM,
     IMPOSTOR_LLM,
 )
+from amongagents.long_context import LongContextAgent, ShortContextAgent
 from amongagents.envs.configs.game_config import FIVE_MEMBER_GAME, SEVEN_MEMBER_GAME
 from amongagents.envs.action import AttemptedAction
 from amongagents.envs.map import Map, Spaceship
@@ -210,6 +212,28 @@ class AmongUs:
                     num_impostors=self.game_config["num_impostors"],
                     num_players=self.game_config["num_players"],
                 ),
+                "LongContext": lambda player, model=None: LongContextAgent(
+                    player,
+                    tools,
+                    self.game_index,
+                    self.agent_config,
+                    self.list_of_impostors,
+                    model=model,
+                    kill_cooldown=self.game_config["kill_cooldown"],
+                    num_impostors=self.game_config["num_impostors"],
+                    num_players=self.game_config["num_players"],
+                ),
+                "ShortContext": lambda player, model=None: ShortContextAgent(
+                    player,
+                    tools,
+                    self.game_index,
+                    self.agent_config,
+                    self.list_of_impostors,
+                    model=model,
+                    kill_cooldown=self.game_config["kill_cooldown"],
+                    num_impostors=self.game_config["num_impostors"],
+                    num_players=self.game_config["num_players"],
+                ),
                 "Random": lambda player, model=None: RandomAgent(player),
             }
             self.agents = []
@@ -274,6 +298,20 @@ class AmongUs:
 
         # Generate enhanced summary data
         self.add_enhanced_summary_data(winner, winner_reason_map[winner])
+
+        # Add turn-by-turn action log
+        game_key = f"Game {self.game_index}"
+        self.summary_json[game_key]["turn_log"] = [
+            {
+                "timestep": entry["timestep"],
+                "phase": entry["phase"],
+                "player": entry["player"].name
+                if hasattr(entry.get("player"), "name")
+                else str(entry.get("player")),
+                "action": str(entry["action"]),
+            }
+            for entry in self.activity_log
+        ]
 
         # add to summary json
         self.summary_json[f"Game {self.game_index}"]["winner"] = winner
@@ -412,9 +450,7 @@ class AmongUs:
         action = await agent.choose_action(self.timestep)
         observation_location = ""
         if action.name == "ViewMonitor":
-            result = agent.choose_observation_location(
-                self.map.ship_map.nodes
-            )
+            result = agent.choose_observation_location(self.map.ship_map.nodes)
             if asyncio.iscoroutine(result):
                 observation_location = await result
             else:
@@ -443,10 +479,10 @@ class AmongUs:
     async def task_phase_step(self):
         # Display any pending system announcement at the start of task phase
         if self.pending_system_announcement:
-            # Send to all alive players as a system message
+            # Send to all players as a system message
             for player in self.players:
-                if player.is_alive:
-                    player.receive(self.pending_system_announcement, info_type="action")
+                # if player.is_alive:
+                player.receive(self.pending_system_announcement, info_type="action")
             print(self.pending_system_announcement)
             self.pending_system_announcement = None
 
@@ -593,9 +629,16 @@ class AmongUs:
         if eliminated_player:
             eliminated_player.is_alive = False
             eliminated_player.reported_death = True
-            system_announcement += f"{eliminated_player.name} was ejected!\n"
-        else:
-            system_announcement += "No one was ejected.\n"
+
+            # Put the player's color into the announcement
+            ejection_text = f"{eliminated_player.name} ({eliminated_player.color}) was ejected!"
+            system_announcement += f"{ejection_text}\n"
+        else: 
+            ejection_text = "No one was ejected."
+            system_announcement += f"{ejection_text}\n"
+            
+        if self.UI and hasattr(self.UI, "show_ejected_player"):
+            self.UI.show_ejected_player(ejection_text)
 
         # Store the announcement to be shown at start of next task phase
         self.pending_system_announcement = system_announcement
@@ -618,6 +661,12 @@ class AmongUs:
 
     async def run_game(self):
         self.initialize_game()
+
+        # Setup LongContextAgent instances (fetch model info + build prompts)
+        for agent in self.agents:
+            if hasattr(agent, "setup"):
+                await agent.setup()
+
         game_over = self.check_game_over()
         while not game_over:
             await self.game_step()
