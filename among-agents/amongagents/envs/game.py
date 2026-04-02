@@ -46,6 +46,7 @@ class AmongUs:
         interviewer=None,
         UI=None,
         game_index=0,
+        log_dir=None,
     ):
         """
         include_human: bool
@@ -72,6 +73,7 @@ class AmongUs:
         self.interviewer = interviewer
         self.UI = UI
         self.game_index = game_index
+        self.log_dir = log_dir or os.environ.get("EXPERIMENT_PATH", ".")
         self.map = Map()
         self.players = []
         self.agents = {}
@@ -211,6 +213,7 @@ class AmongUs:
                     kill_cooldown=self.game_config["kill_cooldown"],
                     num_impostors=self.game_config["num_impostors"],
                     num_players=self.game_config["num_players"],
+                    log_dir=self.log_dir,
                 ),
                 "LongContext": lambda player, model=None: LongContextAgent(
                     player,
@@ -222,6 +225,7 @@ class AmongUs:
                     kill_cooldown=self.game_config["kill_cooldown"],
                     num_impostors=self.game_config["num_impostors"],
                     num_players=self.game_config["num_players"],
+                    log_dir=self.log_dir,
                 ),
                 "ShortContext": lambda player, model=None: ShortContextAgent(
                     player,
@@ -233,6 +237,7 @@ class AmongUs:
                     kill_cooldown=self.game_config["kill_cooldown"],
                     num_impostors=self.game_config["num_impostors"],
                     num_players=self.game_config["num_players"],
+                    log_dir=self.log_dir,
                 ),
                 "Random": lambda player, model=None: RandomAgent(player),
             }
@@ -240,7 +245,7 @@ class AmongUs:
             for i, player in enumerate(self.players):
                 if self.include_human and i == random_idx:
                     # Create HumanAgent with game_id set to game_index
-                    human_agent = HumanAgent(player, game_index=self.game_index)
+                    human_agent = HumanAgent(player, game_index=self.game_index, log_dir=self.log_dir)
                     # Set the game_id attribute to match the game_index
                     human_agent.game_id = self.game_index
                     self.agents.append(human_agent)
@@ -319,7 +324,7 @@ class AmongUs:
             winner_reason_map[winner]
         )
         # finally, append the summary json to the experiment path as a single line json
-        summary_path = os.path.join(os.environ["EXPERIMENT_PATH"], "summary.json")
+        summary_path = os.path.join(self.log_dir, "summary.json")
         with open(summary_path, "a") as f:
             json.dump(self.summary_json, f, separators=(",", ": "))
             f.write("\n")
